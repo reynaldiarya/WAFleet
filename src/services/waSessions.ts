@@ -273,40 +273,78 @@ export async function logoutSession(sessionId: string): Promise<{ ok: boolean }>
  *   pemanggilan paralel. Ini normal; kita tidak treat sebagai error fatal.
  * - COUNT 200 adalah hint jumlah key per iterasi SCAN (bukan batas keras).
  */
-export async function restoreAllSessionsFromRedis(): Promise<string[]> {
-  // 1) Kumpulkan semua sessionId dari pola "baileys:<id>:creds"
-  const ids = new Set<string>();
+function extractIdFromKey(k: string): string | null {
+  // sess:<id>:tokens
+  let m = /^sess:([^:]+):tokens$/.exec(k);
+  if (m) return m[1];
+
+  // baileys:<id>:creds
+  m = /^baileys:(.+):creds$/.exec(k);
+  if (m) return m[1];
+
+  // fallback opsional (jika ingin cut from lock)
+  m = /^lock:wa:(.+)$/.exec(k);
+  if (m) return m[1];
+
+  return null;
+}
+
+async function scanKeys(pattern: string): Promise<string[]> {
   let cursor = '0';
+  const out: string[] = [];
   do {
-    const [next, keys] = await (redis as any).scan(
+    const [next, keys] = (await (redis as any).scan(
       cursor,
       'MATCH',
-      'baileys:*:creds',
+      pattern,
       'COUNT',
-      SCAN_COUNT // hint: kira-kira 200 key per iterasi (kompromi throughput vs latency)
-    );
-    for (const k of keys) {
-      const m = /^baileys:(.+):creds$/.exec(k);
-      if (m) ids.add(m[1]);
-    }
+      SCAN_COUNT
+    )) as [string, string[]];
+    out.push(...(keys as string[]));
     cursor = next;
   } while (cursor !== '0');
+  return out;
+}
 
-  // 2) Restore tiap sessionId dengan retry ringan saat 423 (locked)
+export async function restoreAllSessionsFromRedis(): Promise<string[]> {
+  // 1) Kumpulkan semua kandidat ID dari berbagai pola yang kita pakai
+  const patterns = ['sess:*:tokens', 'baileys:*:creds'];
+  const ids = new Set<string>();
+
+  for (const p of patterns) {
+    const keys = await scanKeys(p);
+    for (const k of keys) {
+      const id = extractIdFromKey(k);
+      if (id) ids.add(id);
+    }
+  }
+
+  // (opsional) deteksi lock yg masih aktif agar bisa di-skip
+  const lockedKeys = await scanKeys('lock:wa:*');
+  const locked = new Set<string>();
+  for (const k of lockedKeys) {
+    const m = /^lock:wa:(.+)$/.exec(k);
+    if (m) locked.add(m[1]);
+  }
+
   const restored: string[] = [];
 
   for (const id of ids) {
-    let ok = false;
+    // skip yang sedang locked oleh instance lain
+    if (locked.has(id)) {
+      logger.warn({ id }, 'auto-restore: skip karena locked');
+      continue;
+    }
 
+    let ok = false;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
-        await createSession(id, false); // pakai creds dari Redis (tanpa QR)
+        await createSession(id, false); // pakai creds/tokens dari Redis (tanpa QR)
         restored.push(id);
         ok = true;
         break;
       } catch (e: any) {
         if (e?.code === 423) {
-          // dikunci oleh instance lain → tunggu lalu coba lagi (sampai batas RETRIES)
           if (attempt < RETRIES) {
             await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
             continue;
@@ -315,15 +353,15 @@ export async function restoreAllSessionsFromRedis(): Promise<string[]> {
         } else {
           logger.error({ id, err: e }, 'auto-restore failed');
         }
-        break; // keluar dari retry loop untuk id ini
+        break;
       }
     }
 
     if (!ok) {
-      // tidak berhasil restore setelah retry → lanjut ke id berikutnya
       logger.info({ id }, 'auto-restore: not restored');
     }
   }
 
+  logger.info({ count: restored.length, restored: Array.from(restored) }, 'auto-restore complete');
   return restored;
 }

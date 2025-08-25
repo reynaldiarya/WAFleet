@@ -1,24 +1,48 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { redis } from '../utils/redisClient.js';
 
-/**
- * Menghasilkan token acak untuk dipakai sebagai Bearer token.
- * - 32 bytes (256-bit) entropi → sangat sulit ditebak.
- * - Di-encode sebagai base64url (tanpa '+' '/' '='), aman dipakai di header/URL.
- */
-function genToken(bytes = 32) {
-  // base64url manual biar aman di header/URL dan kompatibel node
-  return randomBytes(bytes)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+// ===== Base62 (A–Z a–z 0–9) tanpa '-' '_' =====
+const ALPHABET62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const MASK_6BITS = 0b111111; // 0..63
+
+function genToken(length = 12): string {
+  let out = '';
+  while (out.length < length) {
+    const buf = randomBytes(Math.ceil((length - out.length) * 1.6));
+    for (let i = 0; i < buf.length && out.length < length; i++) {
+      const v = buf[i] & MASK_6BITS; // 0..63
+      if (v < 62) out += ALPHABET62[v]; // tolak 62 & 63 (hindari bias)
+    }
+  }
+  return out; // hanya [A-Za-z0-9]
 }
 
 /** Key Redis: mapping token -> sessionId, contoh: token:AbCd... */
 const tokenKey = (t: string) => `token:${t}`;
 /** Key Redis: set daftar token milik satu session, contoh: sess:<sid>:tokens */
 const sessSetKey = (sid: string) => `sess:${sid}:tokens`;
+
+// Kompat: ioredis ('NX') atau node-redis v4 ({ NX: true })
+async function setNX(key: string, val: string): Promise<boolean> {
+  // pakai any agar TS tidak protes per-klien
+  const r: any = redis as any;
+  // Coba gaya ioredis
+  try {
+    const res = await r.set(key, val, 'NX'); // no TTL
+    if (res === 'OK') return true;
+    if (res === null) return false; // ioredis bisa mengembalikan null kalau NX gagal
+  } catch {
+    /* fallthrough */
+  }
+  // Coba gaya node-redis v4
+  try {
+    const res = await r.set(key, val, { NX: true }); // no TTL
+    return res === 'OK';
+  } catch {
+    // Kalau kedua-duanya gagal, anggap tidak set
+    return false;
+  }
+}
 
 /**
  * Membuat pasangan {id, token} baru untuk sebuah session.
@@ -37,12 +61,18 @@ const sessSetKey = (sid: string) => `sess:${sid}:tokens`;
  */
 export async function createSessionTokenPair(sessionId?: string) {
   const id = sessionId ?? randomUUID();
-  const token = genToken(32);
 
-  // simpan mapping TANPA expiry (by design: token tidak otomatis expired)
-  await redis.set(tokenKey(token), id);
-  // buat reverse index utk revoke-all per session
-  await redis.sadd(sessSetKey(id), token);
+  // Loop sampai dapat token unik (tabrakan sangat kecil; loop harus cepat selesai)
+  let token = '';
+  for (;;) {
+    token = genToken(12); // panjang 12
+    const ok = await setNX(tokenKey(token), id);
+    if (ok) break; // unik: lanjut
+    // kalau tidak ok (sudah ada), ulangi
+  }
+
+  // Index balik per session untuk revoke-all
+  await (redis as any).sadd(sessSetKey(id), token);
 
   return { id, token };
 }

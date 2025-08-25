@@ -2,6 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import QRCode from 'qrcode';
 import * as pinoHttpMod from 'pino-http';
 const pinoHttp = (pinoHttpMod as any).default ?? (pinoHttpMod as any); // kompatibel ESM/CJS untuk pino-http
 import { env } from './config/env.js';
@@ -91,7 +92,24 @@ app.get('/qr', requireAuthToken, async (req: Request, res: Response) => {
   const id = (req as any).sessionId as string;
   const qr = await getLastQR(id);
   if (!qr) return res.status(404).json({ error: 'QR belum tersedia / session belum siap' });
-  res.json({ sessionId: id, qr });
+
+  try {
+    if (req.query.image === '1') {
+      // Output langsung PNG
+      res.setHeader('Content-Type', 'image/png');
+      return QRCode.toFileStream(res, qr); // stream langsung ke response
+    }
+
+    // Default → Base64 string di JSON
+    const qrBase64 = await QRCode.toDataURL(qr);
+    return res.json({
+      sessionId: id,
+      qr: qrBase64,
+    });
+  } catch (err) {
+    console.error('QR encode error:', err);
+    return res.status(500).json({ error: 'Gagal generate QR' });
+  }
 });
 
 // Kirim pesan teks
@@ -249,7 +267,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // start server
-app.set('trust proxy', false); // opsional: jika di belakang reverse proxy (nginx, cloud), agar rate-limit/IP akurat
+app.set('trust proxy', true); // opsional: jika di belakang reverse proxy (nginx, cloud), agar rate-limit/IP akurat
 const server = app.listen(env.PORT, () => {
   logger.info(`API listening on :${env.PORT}`);
 });
