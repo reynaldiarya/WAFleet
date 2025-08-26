@@ -4,6 +4,13 @@
 
 > ⚠️ **Disclaimer**  
 > This project is **unofficial** and not affiliated with WhatsApp Inc. Use at your own risk and follow WhatsApp’s Terms of Service. Numbers that violate their terms may be blocked.
+---
+
+## 📖 API Documentation
+
+Complete API documentation is available in Postman:
+
+👉 [View Postman Documentation](https://documenter.getpostman.com/view/27393339/2sB3Heuj2g)
 
 ---
 
