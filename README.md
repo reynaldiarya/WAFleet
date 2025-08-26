@@ -47,10 +47,8 @@
 # 1) Install deps
 npm install
 
-# 2) Copy env and edit as needed
-cp .env.example .env
-
-# 3) Run dev
+# 2) Run dev
 npm run dev
+
 # or build & run
 npm run build && npm start

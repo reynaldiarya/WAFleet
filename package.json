@@ -6,7 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && shx cp .env.example dist/ && shx cp package.json dist/",
+    "build": "tsc && shx cp .env.example dist/.env && shx cp package.json dist/",
     "start": "node dist/server.js",
     "prettier-format": "prettier --config .prettierrc --write \"src/**/*.ts\""
   },
