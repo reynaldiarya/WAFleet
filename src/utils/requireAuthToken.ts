@@ -33,7 +33,7 @@ import { getSessionIdByToken } from '../services/tokenStore.js';
  */
 function parseBearer(auth?: string): string | null {
   if (!auth) return null;
-  if (auth.length > env.AUTH_TOKEN_LEN) {
+  if (auth.length > env.AUTH_TOKEN_LEN + 7) {
     throw new Error('Input too long');
   }
   if (!auth.startsWith('Bearer ')) return null;

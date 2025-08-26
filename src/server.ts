@@ -226,20 +226,32 @@ app.post(
 
       // Delay & typing
       const delayMs = parseDelay(delay);
-      setTimeout(async () => {
+      let sentMsg;
+
+      if (typing) {
         try {
-          if (typing) {
-            try {
-              simulateTyping(s.sock!, jid, 2000);
-            } catch {}
+          simulateTyping(s.sock!, jid, 2000);
+        } catch {}
+      }
+
+      if (delayMs && delayMs > 0) {
+        setTimeout(async () => {
+          try {
+            sentMsg = await s.sock!.sendMessage(jid, payload);
+          } catch (err) {
+            logger.error({ err }, 'send /send failed');
           }
-          await s.sock!.sendMessage(jid, payload);
+        }, delayMs);
+
+        res.json({ success: true, detail: { status: 'pending' }, scheduledInMs: delayMs });
+      } else {
+        try {
+          sentMsg = await s.sock!.sendMessage(jid, payload);
         } catch (err) {
           logger.error({ err }, 'send /send failed');
         }
-      }, delayMs);
-
-      res.json({ success: true, scheduledInMs: delayMs });
+        res.json({ success: true, detail: sentMsg, scheduledInMs: delayMs });
+      }
     } catch (e) {
       next(e);
     }
