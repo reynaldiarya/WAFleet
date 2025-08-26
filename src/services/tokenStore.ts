@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { redis } from '../utils/redisClient.js';
+import { env } from '../config/env.js';
 
 // ===== Base62 (A–Z a–z 0–9) tanpa '-' '_' =====
 const ALPHABET62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -65,7 +66,7 @@ export async function createSessionTokenPair(sessionId?: string) {
   // Loop sampai dapat token unik (tabrakan sangat kecil; loop harus cepat selesai)
   let token = '';
   for (;;) {
-    token = genToken(12); // panjang 12
+    token = genToken(env.AUTH_TOKEN_LEN); // panjang 12
     const ok = await setNX(tokenKey(token), id);
     if (ok) break; // unik: lanjut
     // kalau tidak ok (sudah ada), ulangi

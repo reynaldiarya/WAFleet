@@ -73,6 +73,9 @@ export const EnvSchema = z.object({
   // Distributed lock (locks.ts)
   LOCK_TTL_MS: z.coerce.number().default(10_000), // TTL lock (ms). Harus > interval perpanjang (RENEW). Umum: 10–30 detik.
   LOCK_RENEW_EVERY_MS: z.coerce.number().default(5_000), // Interval perpanjang TTL (ms). Jaga kira-kira 1/2–1/3 dari LOCK_TTL_MS.
+
+  // Panjang token otentikasi (karakter). Makin panjang = makin aman dari brute-force.
+  AUTH_TOKEN_LEN: z.coerce.number().positive().default(100),
 });
 
 /**

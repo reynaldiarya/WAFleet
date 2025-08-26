@@ -33,5 +33,8 @@ declare namespace NodeJS {
     // Distributed lock (locks.ts)
     LOCK_TTL_MS?: string; // mis. "10.000–30.000"
     LOCK_RENEW_EVERY_MS?: string; // Disarankan ≈ 1/2–1/3 dari TTL
+
+    // Panjang token otentikasi (karakter).
+    AUTH_TOKEN_LEN?: string;
   }
 }

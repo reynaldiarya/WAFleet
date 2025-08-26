@@ -22,6 +22,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { getSessionIdByToken } from '../services/tokenStore.js';
 
 /**
@@ -32,8 +33,12 @@ import { getSessionIdByToken } from '../services/tokenStore.js';
  */
 function parseBearer(auth?: string): string | null {
   if (!auth) return null;
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
+  if (auth.length > env.AUTH_TOKEN_LEN) {
+    throw new Error('Input too long');
+  }
+  if (!auth.startsWith('Bearer ')) return null;
+  const token = auth.slice(7).trim();
+  return token || null;
 }
 
 /**
