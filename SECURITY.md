@@ -4,10 +4,10 @@
 
 We only provide security updates for versions listed as "Supported" below.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.0.1   | ✅ Supported        |
-| 0.0.x   | ❌ Not Supported    |
+| Version | Supported        |
+| ------- | ---------------- |
+| 0.0.1   | ✅ Supported     |
+| 0.0.x   | ❌ Not Supported |
 
 ## Reporting Vulnerabilities
 
@@ -17,7 +17,7 @@ To report a vulnerability, please [open a private security advisory on GitHub](h
 
 If you are looking for existing advisories, they are available [here](https://github.com/reynaldiarya/WAFleet/security/advisories).
 
-For bugs or suggestions **not related to a security issue**, please [open a new issue here](https://github.com/reynaldiarya/WAFleet/issues/new). *(Please search existing issues first.)*
+For bugs or suggestions **not related to a security issue**, please [open a new issue here](https://github.com/reynaldiarya/WAFleet/issues/new). _(Please search existing issues first.)_
 
 A well-written vulnerability report should ideally include:
 

@@ -1,6 +1,5 @@
 import type { WASocket } from 'baileys';
 
-/** Bersihkan nomor; jika diawali 0 dan ada countryCode, ubah jadi kode negara + sisa */
 export function sanitizeNumber(raw: string, countryCode?: string) {
   const s = raw.replace(/\D/g, '');
   if (s.startsWith('0') && countryCode && /^\d+$/.test(countryCode)) {
@@ -13,29 +12,24 @@ export function toJid(num: string) {
   return num.includes('@') ? num : `${num}@s.whatsapp.net`;
 }
 
-/** Parse delay: 10 / "10" / "10 s" / "1-10" → ms */
 export function parseDelay(spec?: string | number): number {
   if (spec == null) return 0;
 
-  // number: paksa integer ≥ 0
   if (typeof spec === 'number') {
     if (!Number.isFinite(spec)) return 0;
     const n = Math.trunc(spec);
     return n > 0 ? n * 1000 : 0;
   }
 
-  // string: hanya digit penuh (tanpa "s", "second", range, dsb.)
   const s = spec.trim();
   if (/^\d+$/.test(s)) {
     const n = parseInt(s, 10);
     return n > 0 ? n * 1000 : 0;
   }
 
-  // format lain diabaikan
   return 0;
 }
 
-/** Ambil buffer dari URL (pakai global fetch Node 18+) */
 export async function fetchBuffer(
   url: string
 ): Promise<{ buffer: Buffer; mimetype?: string; filename?: string }> {
@@ -53,7 +47,6 @@ export async function fetchBuffer(
   return { buffer, mimetype: ct, filename };
 }
 
-/** Simulasi mengetik */
 export async function simulateTyping(sock: WASocket, jid: string, ms = 2000) {
   try {
     await sock.sendPresenceUpdate('composing', jid);

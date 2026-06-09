@@ -80,6 +80,7 @@ npm start
 ```
 
 For development with hot-reloading, use:
+
 ```bash
 npm run dev
 ```
@@ -90,37 +91,39 @@ WAFleet utilizes environment variables for all sensitive and system-level config
 
 ### Core Settings
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | The port the REST API will listen on | `3000` |
-| `LOG_LEVEL` | Pino logging level (info, debug, error) | `info` |
-| `AUTH_TOKEN_LEN` | Length of the auto-generated session tokens | `12` |
+| Variable         | Description                                 | Default |
+| ---------------- | ------------------------------------------- | ------- |
+| `PORT`           | The port the REST API will listen on        | `3000`  |
+| `LOG_LEVEL`      | Pino logging level (info, debug, error)     | `info`  |
+| `AUTH_TOKEN_LEN` | Length of the auto-generated session tokens | `12`    |
 
 ### Redis Configuration
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `REDIS_URL` | Full Redis connection string | `redis://localhost:6379` |
-| `REDIS_HOST` | Redis hostname (if URL is not used) | `127.0.0.1` |
-| `REDIS_PORT` | Redis port (if URL is not used) | `6379` |
+| Variable     | Description                         | Example                  |
+| ------------ | ----------------------------------- | ------------------------ |
+| `REDIS_URL`  | Full Redis connection string        | `redis://localhost:6379` |
+| `REDIS_HOST` | Redis hostname (if URL is not used) | `127.0.0.1`              |
+| `REDIS_PORT` | Redis port (if URL is not used)     | `6379`                   |
 
 ### Security & Limits
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ALLOWED_ORIGINS` | CORS whitelist (comma separated) | `*` |
-| `RATE_LIMIT_MAX` | Maximum requests per IP window | `100` |
-| `RATE_LIMIT_WINDOW_MS` | Rate limit window duration | `60000` |
+| Variable               | Description                      | Default |
+| ---------------------- | -------------------------------- | ------- |
+| `ALLOWED_ORIGINS`      | CORS whitelist (comma separated) | `*`     |
+| `RATE_LIMIT_MAX`       | Maximum requests per IP window   | `100`   |
+| `RATE_LIMIT_WINDOW_MS` | Rate limit window duration       | `60000` |
 
 ## Usage
 
 ### 1. Create a New Session
+
 Initialize a new WhatsApp session and receive a dedicated access token.
 
 **Request:**
 `POST /session`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -131,20 +134,23 @@ Initialize a new WhatsApp session and receive a dedicated access token.
 ```
 
 ### 2. Connect via QR Code
+
 Retrieve the QR code for the session to link your WhatsApp account.
 
 **Request:**
 `GET /qr`
-*Headers: `Authorization: Bearer <your_token>`*
+_Headers: `Authorization: Bearer <your_token>`_
 
 ### 3. Send a Message
+
 Dispatch a text or media message to a specific number.
 
 **Request:**
 `POST /send`
-*Headers: `Authorization: Bearer <your_token>`*
+_Headers: `Authorization: Bearer <your_token>`_
 
 **Payload (JSON):**
+
 ```json
 {
   "to": "628123456789",
@@ -155,9 +161,11 @@ Dispatch a text or media message to a specific number.
 ```
 
 ### 4. Send Media
+
 Upload a file directly or provide a URL for WAFleet to fetch and send.
 
 **Payload (Multipart/Form-Data):**
+
 - `to`: `628123456789`
 - `file`: `[Binary Data]`
 - `text`: `Check this document`
@@ -179,11 +187,11 @@ Upload a file directly or provide a URL for WAFleet to fetch and send.
 
 ## Scripts / Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server with tsx watch |
-| `npm run build` | Compile TypeScript and prepare dist folder |
-| `npm start` | Execute the compiled production bundle |
+| Command                   | Description                                       |
+| ------------------------- | ------------------------------------------------- |
+| `npm run dev`             | Start development server with tsx watch           |
+| `npm run build`           | Compile TypeScript and prepare dist folder        |
+| `npm start`               | Execute the compiled production bundle            |
 | `npm run prettier-format` | Format source code according to project standards |
 
 ## Contributing

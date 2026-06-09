@@ -7,39 +7,27 @@ import { redis } from '../utils/redisClient.js';
 import { useRedisAuth, deleteRedisAuth } from './waAuthRedis.js';
 import { acquireSessionLock, type SessionLock } from './locks.js';
 
-/**
- * Modul manajer sesi Baileys:
- * - Menyimpan dan mengelola lifecycle koneksi WA Web per `sessionId`
- * - Persist kredensial ke Redis agar bisa restore tanpa scan QR
- * - Menangani reconnect dengan backoff
- * - Mencetak QR ke terminal (opsional) saat pairing
- * - Menggunakan distributed lock agar tidak ada dua proses/instance
- *   yang memproses session yang sama (hindari race condition)
- */
-
 type SessionStatus = 'connecting' | 'open' | 'close';
 
 export interface SessionEntry {
-  sock: WASocket | null; // instance socket Baileys
-  status: SessionStatus; // status koneksi saat ini
-  lastQr: string | null; // cache QR raw (untuk dedup)
-  userJid: string | null; // JID user saat sudah login
-  reconnecting?: boolean; // flag agar tidak schedule reconnect ganda
-  backoffMs?: number; // durasi backoff saat ini
-  backoffTimer?: NodeJS.Timeout | null; // timer reconnect
-  lock?: SessionLock; // distributed lock untuk sessionId ini
+  sock: WASocket | null;
+  status: SessionStatus;
+  lastQr: string | null;
+  userJid: string | null;
+  reconnecting?: boolean;
+  backoffMs?: number;
+  backoffTimer?: NodeJS.Timeout | null;
+  lock?: SessionLock;
 }
 
 const sessions: Record<string, SessionEntry> = {};
 
-// Fallback default kalau env belum ada (nilai batas backoff)
 const RECONNECT_MIN = (env as any).WS_RECONNECT_MIN_MS ?? 2_000;
 const RECONNECT_MAX = (env as any).WS_RECONNECT_MAX_MS ?? 30_000;
 const SCAN_COUNT = (env as any).RESTORE_SCAN_COUNT ?? 200;
 const RETRIES = (env as any).RESTORE_LOCK_RETRIES ?? 5;
 const RETRY_DELAY_MS = (env as any).RESTORE_LOCK_RETRY_DELAY_MS ?? 2_000;
 
-/** Reset state backoff setelah koneksi berhasil open */
 function resetBackoff(s: SessionEntry) {
   s.backoffMs = RECONNECT_MIN;
   if (s.backoffTimer) {
@@ -49,11 +37,6 @@ function resetBackoff(s: SessionEntry) {
   s.reconnecting = false;
 }
 
-/**
- * Jadwalkan percobaan reconnect dengan exponential backoff.
- * - Tidak akan menjadwalkan ulang jika sudah dalam mode `reconnecting`
- * - Memanggil `createSession(sessionId, true)` agar re-init socket
- */
 function scheduleReconnect(sessionId: string, reason: string) {
   const s = sessions[sessionId];
   if (!s || s.reconnecting) return;
@@ -72,12 +55,11 @@ function scheduleReconnect(sessionId: string, reason: string) {
   }, delay);
 }
 
-/** Ambil entry session dari memori (null jika belum dibuat) */
 export async function getSession(sessionId: string): Promise<SessionEntry | null> {
   const s = sessions[sessionId];
   if (s) return s;
   try {
-    const restored = await createSession(sessionId, false); // akan load creds dari Redis jika ada
+    const restored = await createSession(sessionId, false);
     return restored ?? null;
   } catch (e) {
     logger.error({ sessionId, err: e }, 'lazy restore failed');
@@ -85,29 +67,20 @@ export async function getSession(sessionId: string): Promise<SessionEntry | null
   }
 }
 
-/** Ambil QR terakhir (raw string) jika ada, untuk endpoint /qr */
 export async function getLastQR(sessionId: string): Promise<string | null> {
   return sessions[sessionId]?.lastQr ?? null;
 }
 
-/**
- * Buat / restore session:
- * - Jika sudah ada socket aktif & tidak `force`, kembalikan instance yang ada
- * - Acquire distributed lock (agar tidak diproses paralel di multi instance)
- * - Saat `force`, lepas event listener lama dan nul-kan sock agar tidak dobel
- * - Bangun `makeWASocket` dari `useRedisAuth()` (persist di Redis)
- * - Pasang listener `creds.update` → `saveCreds()` dan `connection.update` untuk lifecycle
- */
 export async function createSession(sessionId: string, force = false): Promise<SessionEntry> {
   const existing = sessions[sessionId];
   if (existing?.sock && existing.status !== 'close' && !force) return existing;
 
-  // ---- Lock distribusi untuk hindari multi-instance ----
+  // Distributed lock to prevent multi-instance collisions
   if (!existing?.lock) {
     const lock = await acquireSessionLock(redis as any, sessionId);
     if (!lock) {
       const err = new Error(`Session ${sessionId} is locked by another instance`);
-      (err as any).code = 423; // 423 Locked (HTTP-ish)
+      (err as any).code = 423;
       throw err;
     }
     sessions[sessionId] = existing
@@ -115,7 +88,6 @@ export async function createSession(sessionId: string, force = false): Promise<S
       : { sock: null, status: 'connecting', lastQr: null, userJid: null, lock };
   }
 
-  // 🧹 Jika force & ada socket lama → cabut listener dulu supaya tidak dobel
   if (force && existing?.sock) {
     try {
       existing.sock.ev.removeAllListeners('connection.update');
@@ -125,27 +97,21 @@ export async function createSession(sessionId: string, force = false): Promise<S
     sessions[sessionId]!.sock = null;
   }
 
-  // Logger khusus untuk Baileys
   const plogger: Logger = P({ level: env.LOG_LEVEL || 'info' });
-
-  // Load/persist kredensial via Redis → ini memungkinkan auto-restore tanpa QR
   const { state, saveCreds } = await useRedisAuth(sessionId, redis as any, plogger);
 
-  // Membuat socket Baileys
   const sock = makeWASocket({
     logger: plogger,
-    printQRInTerminal: false, // kita cetak QR manual di handler update
-    markOnlineOnConnect: false, // optional: tidak langsung online
-    auth: state, // kredensial + signal keystore (Redis)
-    keepAliveIntervalMs: 20_000, // ping interval
-    connectTimeoutMs: 60_000, // batas waktu menghubungkan
+    printQRInTerminal: false,
+    markOnlineOnConnect: false,
+    auth: state,
+    keepAliveIntervalMs: 20_000,
+    connectTimeoutMs: 60_000,
   });
 
-  // Simpan/replace entry di memori
   const entry: SessionEntry = { ...(sessions[sessionId] || {}), sock, status: 'connecting' };
   sessions[sessionId] = entry;
 
-  // Persist cred saat berubah (Baileys memancarkan event ini)
   sock.ev.on('creds.update', async () => {
     try {
       await saveCreds();
@@ -154,16 +120,13 @@ export async function createSession(sessionId: string, force = false): Promise<S
     }
   });
 
-  // Lifecycle koneksi
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    // ---- QR: debounce & jangan print kalau sudah open ----
     if (qr && entry.status !== 'open' && entry.lastQr !== qr) {
       entry.lastQr = qr;
       (async () => {
         try {
-          // Render QR ke terminal (teks), bukan ke logger agar ANSI tidak di-escape
           const qrStr = await QRCode.toString(qr, { type: 'terminal', small: true, margin: 1 });
           console.clear();
           console.log(`[${sessionId}] Scan QR:`);
@@ -175,32 +138,28 @@ export async function createSession(sessionId: string, force = false): Promise<S
     }
 
     if (connection === 'open') {
-      // Koneksi sukses → reset backoff, bersihkan lastQr, simpan JID user
       entry.status = 'open';
       entry.userJid = sock.user?.id ?? null;
-      entry.lastQr = null; // ✅ bersihkan, supaya QR berikutnya tidak ke-dedup salah
+      entry.lastQr = null;
       resetBackoff(entry);
       logger.info({ sessionId, user: entry.userJid }, 'connected');
       return;
     }
 
     if (connection === 'close') {
-      // Koneksi tutup → tentukan apakah perlu reconnect atau logout total
       entry.status = 'close';
-      entry.lastQr = null; // ✅ agar saat reconnect QR baru dicetak lagi (bukan sisa)
+      entry.lastQr = null;
       const boom = (lastDisconnect as any)?.error;
       const code: number | undefined = boom?.output?.statusCode ?? boom?.code;
       const msg: string | undefined = boom?.message;
 
       logger.warn({ sessionId, code, msg }, 'connection closed');
 
-      // Tidak reconnect untuk loggedOut / connectionReplaced (harus pairing ulang atau sesi digantikan)
       if (code === DisconnectReason.loggedOut || code === DisconnectReason.connectionReplaced) {
-        void logoutSession(sessionId); // otomatis wipe & release lock
+        void logoutSession(sessionId);
         return;
       }
 
-      // Reconnect untuk kasus umum (timeout, network issue, dsb.)
       scheduleReconnect(sessionId, msg || `code-${code}`);
     }
   });
@@ -208,81 +167,44 @@ export async function createSession(sessionId: string, force = false): Promise<S
   return entry;
 }
 
-/**
- * Logout + wipe kredensial (terminate sesi):
- * - Hentikan backoff
- * - Lepas semua listener event dari socket
- * - Panggil `sock.logout()` (abaikan error)
- * - Release distributed lock
- * - Hapus entry dari memori
- * - Hapus seluruh data auth & token di Redis (`deleteRedisAuth`)
- *
- * Catatan:
- * - Fungsi ini idempotent: jika session tidak ada di memori, tetap akan
- *   menghapus kredensial/token di Redis.
- * - Setelah dipanggil, perlu scan QR lagi bila ingin login ulang.
- */
 export async function logoutSession(sessionId: string): Promise<{ ok: boolean }> {
   const s = await getSession(sessionId);
   if (!s) {
-    await deleteRedisAuth(sessionId, redis as any); // idempotent
+    await deleteRedisAuth(sessionId, redis as any);
     return { ok: true };
   }
 
-  // stop backoff
   try {
     if (s.backoffTimer) clearTimeout(s.backoffTimer);
   } catch {}
   s.reconnecting = false;
 
-  // lepas listener
   try {
     s.sock?.ev.removeAllListeners('connection.update');
     s.sock?.ev.removeAllListeners('creds.update');
     s.sock?.ev.removeAllListeners('messages.upsert');
   } catch {}
 
-  // logout WA Web (abaikan error)
   try {
     await s.sock?.logout();
   } catch {}
 
-  // release lock (supaya instance lain bisa acquire)
   try {
     await s.lock?.release();
   } catch {}
 
-  // hapus dari cache memori
   delete sessions[sessionId];
-
-  // wipe store di Redis (kredensial + token API session)
   await deleteRedisAuth(sessionId, redis as any);
   return { ok: true };
 }
 
-/**
- * Auto-restore semua session yang punya kredensial Baileys di Redis.
- *
- * - Men-scan key `baileys:*:creds` (COUNT 200) untuk menemukan sessionId.
- * - Untuk tiap sessionId: panggil `createSession(id, false)` agar socket aktif lagi tanpa QR.
- * - Jika terkendala lock (423), lakukan retry singkat beberapa kali, lalu skip bila tetap locked.
- * - Mengembalikan daftar sessionId yang berhasil direstore (triggered).
- *
- * Catatan:
- * - 423 "Locked" biasanya terjadi saat dua proses overlap (mis. tsx watch restart) atau ada
- *   pemanggilan paralel. Ini normal; kita tidak treat sebagai error fatal.
- * - COUNT 200 adalah hint jumlah key per iterasi SCAN (bukan batas keras).
- */
 function extractIdFromKey(k: string): string | null {
-  // sess:<id>:tokens
   let m = /^sess:([^:]+):tokens$/.exec(k);
   if (m) return m[1];
 
-  // baileys:<id>:creds
   m = /^baileys:(.+):creds$/.exec(k);
   if (m) return m[1];
 
-  // fallback opsional (jika ingin cut from lock)
   m = /^lock:wa:(.+)$/.exec(k);
   if (m) return m[1];
 
@@ -307,7 +229,6 @@ async function scanKeys(pattern: string): Promise<string[]> {
 }
 
 export async function restoreAllSessionsFromRedis(): Promise<string[]> {
-  // 1) Kumpulkan semua kandidat ID dari berbagai pola yang kita pakai
   const patterns = ['sess:*:tokens', 'baileys:*:creds'];
   const ids = new Set<string>();
 
@@ -319,7 +240,6 @@ export async function restoreAllSessionsFromRedis(): Promise<string[]> {
     }
   }
 
-  // (opsional) deteksi lock yg masih aktif agar bisa di-skip
   const lockedKeys = await scanKeys('lock:wa:*');
   const locked = new Set<string>();
   for (const k of lockedKeys) {
@@ -330,16 +250,15 @@ export async function restoreAllSessionsFromRedis(): Promise<string[]> {
   const restored: string[] = [];
 
   for (const id of ids) {
-    // skip yang sedang locked oleh instance lain
     if (locked.has(id)) {
-      logger.warn({ id }, 'auto-restore: skip karena locked');
+      logger.warn({ id }, 'auto-restore: skip due to lock');
       continue;
     }
 
     let ok = false;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       try {
-        await createSession(id, false); // pakai creds/tokens dari Redis (tanpa QR)
+        await createSession(id, false);
         restored.push(id);
         ok = true;
         break;
