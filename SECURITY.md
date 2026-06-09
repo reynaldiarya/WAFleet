@@ -6,7 +6,7 @@ We only provide security updates for versions listed as "Supported" below.
 
 | Version | Supported        |
 | ------- | ---------------- |
-| 0.0.1   | ✅ Supported     |
+| 1.0.0   | ✅ Supported     |
 | 0.0.x   | ❌ Not Supported |
 
 ## Reporting Vulnerabilities

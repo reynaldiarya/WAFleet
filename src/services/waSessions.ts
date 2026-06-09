@@ -94,7 +94,10 @@ export async function createSession(sessionId: string, force = false): Promise<S
       existing.sock.ev.removeAllListeners('creds.update');
       existing.sock.ev.removeAllListeners('messages.upsert');
     } catch {}
-    sessions[sessionId]!.sock = null;
+    const current = sessions[sessionId];
+    if (current) {
+      current.sock = null;
+    }
   }
 
   const plogger: Logger = P({ level: env.LOG_LEVEL || 'info' });
@@ -109,7 +112,16 @@ export async function createSession(sessionId: string, force = false): Promise<S
     connectTimeoutMs: 60_000,
   });
 
-  const entry: SessionEntry = { ...(sessions[sessionId] || {}), sock, status: 'connecting' };
+  const entry: SessionEntry = {
+    sock,
+    status: 'connecting',
+    lastQr: existing?.lastQr ?? null,
+    userJid: existing?.userJid ?? null,
+    reconnecting: existing?.reconnecting,
+    backoffMs: existing?.backoffMs,
+    backoffTimer: existing?.backoffTimer,
+    lock: existing?.lock,
+  };
   sessions[sessionId] = entry;
 
   sock.ev.on('creds.update', async () => {
@@ -200,13 +212,13 @@ export async function logoutSession(sessionId: string): Promise<{ ok: boolean }>
 
 function extractIdFromKey(k: string): string | null {
   let m = /^sess:([^:]+):tokens$/.exec(k);
-  if (m) return m[1];
+  if (m) return m[1] ?? null;
 
   m = /^baileys:(.+):creds$/.exec(k);
-  if (m) return m[1];
+  if (m) return m[1] ?? null;
 
   m = /^lock:wa:(.+)$/.exec(k);
-  if (m) return m[1];
+  if (m) return m[1] ?? null;
 
   return null;
 }
@@ -244,7 +256,7 @@ export async function restoreAllSessionsFromRedis(): Promise<string[]> {
   const locked = new Set<string>();
   for (const k of lockedKeys) {
     const m = /^lock:wa:(.+)$/.exec(k);
-    if (m) locked.add(m[1]);
+    if (m && m[1] !== undefined) locked.add(m[1]);
   }
 
   const restored: string[] = [];

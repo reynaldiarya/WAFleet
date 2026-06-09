@@ -10,8 +10,14 @@ function genToken(length = 12): string {
   while (out.length < length) {
     const buf = randomBytes(Math.ceil((length - out.length) * 1.6));
     for (let i = 0; i < buf.length && out.length < length; i++) {
-      const v = buf[i] & MASK_6BITS;
-      if (v < 62) out += ALPHABET62[v];
+      const b = buf[i];
+      if (b !== undefined) {
+        const v = b & MASK_6BITS;
+        const char = ALPHABET62[v];
+        if (v < 62 && char !== undefined) {
+          out += char;
+        }
+      }
     }
   }
   return out;
